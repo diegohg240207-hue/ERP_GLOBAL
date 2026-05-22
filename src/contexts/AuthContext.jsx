@@ -8,41 +8,52 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
+  // onAuthStateChange callback MUST be synchronous (no await).
+  // Supabase v2 holds an internal lock while dispatching auth events.
+  // Calling supabase.from() inside the callback tries to acquire the same lock → deadlock.
   useEffect(() => {
-    // Single source of truth: onAuthStateChange fires INITIAL_SESSION on mount,
-    // so getSession() is redundant and causes race conditions.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        const u = session?.user ?? null
-        setUser(u)
-        if (u) {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', u.id)
-            .single()
-          setProfile(!error && data ? data : null)
-        } else {
-          setProfile(null)
-        }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const u = session?.user ?? null
+      setUser(u)
+      if (!u) {
+        // No session → immediately done
+        setProfile(null)
         setLoading(false)
       }
-    )
+      // If user exists: loading stays true until profile effect below resolves it
+    })
     return () => subscription.unsubscribe()
   }, [])
 
+  // Profile loader — runs outside the auth lock, safe to await Supabase queries
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    setLoading(true)
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+      if (!cancelled) {
+        setProfile(!error && data ? data : null)
+        setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [user?.id])
+
   async function signIn(email, password) {
-    // Don't load profile here — onAuthStateChange(SIGNED_IN) handles it cleanly
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
     return data
   }
 
   async function signOut() {
-    // Set loading=true to prevent flash of wrong UI during transition
     setLoading(true)
     await supabase.auth.signOut()
-    // onAuthStateChange(SIGNED_OUT) will clear user/profile and set loading=false
+    // onAuthStateChange(SIGNED_OUT) will set user=null, profile=null, loading=false
   }
 
   return (
