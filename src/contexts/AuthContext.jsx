@@ -8,53 +8,41 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  async function loadProfile(userId) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    if (!error && data) setProfile(data)
-  }
-
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      if (session?.user) loadProfile(session.user.id)
-      else setLoading(false)
-    })
-
+    // Single source of truth: onAuthStateChange fires INITIAL_SESSION on mount,
+    // so getSession() is redundant and causes race conditions.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        setUser(session?.user ?? null)
-        if (session?.user) {
-          await loadProfile(session.user.id)
+        const u = session?.user ?? null
+        setUser(u)
+        if (u) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', u.id)
+            .single()
+          setProfile(!error && data ? data : null)
         } else {
           setProfile(null)
         }
         setLoading(false)
       }
     )
-
     return () => subscription.unsubscribe()
   }, [])
 
-  useEffect(() => {
-    if (user && profile) setLoading(false)
-    if (!user) setLoading(false)
-  }, [user, profile])
-
   async function signIn(email, password) {
+    // Don't load profile here — onAuthStateChange(SIGNED_IN) handles it cleanly
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
-    if (data.user) await loadProfile(data.user.id)
     return data
   }
 
   async function signOut() {
+    // Set loading=true to prevent flash of wrong UI during transition
+    setLoading(true)
     await supabase.auth.signOut()
-    setUser(null)
-    setProfile(null)
+    // onAuthStateChange(SIGNED_OUT) will clear user/profile and set loading=false
   }
 
   return (
