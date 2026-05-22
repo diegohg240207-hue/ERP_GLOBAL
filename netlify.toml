@@ -6,3 +6,32 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# ── Security Headers ────────────────────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Prevent clickjacking
+    X-Frame-Options = "DENY"
+    # Prevent MIME-type sniffing
+    X-Content-Type-Options = "nosniff"
+    # XSS filter (legacy browsers)
+    X-XSS-Protection = "1; mode=block"
+    # Referrer leakage control
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    # Restrict browser features
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), display-capture=(), interest-cohort=()"
+    # Force HTTPS for 1 year + preload
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+    # Content Security Policy
+    # - script-src 'self'           → only bundled JS from same origin
+    # - style-src unsafe-inline     → React inline styles + Google Fonts
+    # - connect-src                 → Supabase REST + Realtime WebSocket
+    # - frame-ancestors 'none'      → equivalent to X-Frame-Options DENY (CSP level 3)
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://hinludbcgdjhpsxjetih.supabase.co wss://hinludbcgdjhpsxjetih.supabase.co; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; manifest-src 'self';"
+
+# ── Cache: immutable hashed assets ──────────────────────────────────────────
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
